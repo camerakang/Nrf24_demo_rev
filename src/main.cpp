@@ -72,6 +72,12 @@ void loop()
   memcpy(&ackPayload, "payload ack", sizeof("payload ack"));
   // 调用函数
   ReceivedData receivedData = handleRadioReceive(&ackPayload, sizeof(ackPayload));
+  if (receivedData.size > 0)
+  {
+    ackPayload.counter = receivedData.data[2];
+  }
+
+  delay(10);
 }
 void TaskReceiveFromSend(void *pvParameters)
 {

@@ -120,8 +120,8 @@ ReceivedData handleRadioReceive(PayloadStruct *ackPayload, uint8_t ackSize)
         // 如果提供了确认payload，则发送它
         if (ackPayload != NULL && ackSize > 0)
         {
+            ackPayload->counter = result.data[2]; // 假设你想在每次ACK时增加计数器
             Serial.println(ackPayload->counter);
-            ackPayload->counter++; // 假设你想在每次ACK时增加计数器
 
             radio.writeAckPayload(result.pipe, ackPayload, ackSize);
         }
