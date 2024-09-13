@@ -85,18 +85,23 @@ ReceivedData handleRadioReceive(PayloadStruct *ackPayload, uint8_t ackSize)
     // 检查是否有数据可用
     if (radio.available(&result.pipe))
     {
+
         unsigned long current_time = micros();        // 获取当前时间，用于计算接收间隔
         result.interval = current_time - start_timer; // 计算接收间隔
         start_timer = current_time;                   // 更新计时器起点
 
         result.size = radio.getDynamicPayloadSize(); // 获取动态payload大小
         // 确保payload大小不会超过最大值
-        if (result.size > MAX_PAYLOAD_SIZE)
+        if (result.size > 0 && result.size <= MAX_PAYLOAD_SIZE)
         {
-            result.size = MAX_PAYLOAD_SIZE;
+            radio.read(result.data, result.size); // 读取接收到的数据
         }
-
-        radio.read(result.data, result.size); // 读取接收到的数据
+        else
+        {
+            // 数据大小不正确，清空RX FIFO
+            radio.flush_rx();
+            return result;
+        }
 
         // 在串口监视器上输出接收到的数据信息
         Serial.print(F("Received "));
@@ -104,23 +109,26 @@ ReceivedData handleRadioReceive(PayloadStruct *ackPayload, uint8_t ackSize)
         Serial.print(F(" bytes on pipe "));
         Serial.print(result.pipe);
         Serial.print(F(": "));
-
+        Serial.print("0x");
+        Serial.print(result.data[2]);
+        Serial.print(" ");
         // 遍历并输出接收到的数据
-        for (int i = 0; i < result.size; i++)
-        {
-            Serial.print("0x");
-            Serial.print(result.data[i], HEX);
-            Serial.print(" ");
-        }
+        // for (int i = 0; i < result.size; i++)
+        // {
+        //     Serial.print("0x");
+        //     Serial.print(result.data[i], HEX);
+        //     Serial.print(" ");
+        // }
 
-        Serial.print(F(" Interval: "));
-        Serial.print(result.interval);
-        Serial.print(F(" us "));
+        // Serial.print(F(" Interval: "));
+        // Serial.print(result.interval);
+        // Serial.print(F(" us "));
 
         // 如果提供了确认payload，则发送它
         if (ackPayload != NULL && ackSize > 0)
         {
-            ackPayload->counter = result.data[2]; // 假设你想在每次ACK时增加计数器
+            // ackPayload->counter = result.data[2];
+            Serial.print(ackPayload->message);
             Serial.println(ackPayload->counter);
 
             radio.writeAckPayload(result.pipe, ackPayload, ackSize);

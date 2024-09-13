@@ -43,14 +43,16 @@ void setup()
   radio.setDataRate(RF24_1MBPS);
   radio.setRetries(2, 5);
   radio.setPALevel(RF24_PA_HIGH);
+    radio.enableAckPayload();
+
   radio.enableDynamicPayloads();
-  radio.enableAckPayload();
   radio.openWritingPipe(address[3]);    // 设置发送地址 (用于ACK)
   radio.openReadingPipe(1, address[1]); // 设置接收地址
 
   radio.printDetails();
   radio.setChannel(100);
   radio.flush_tx();
+  memcpy(&ackPayload, "first ack", sizeof("first ack"));
 
   radio.writeAckPayload(1, &payload, sizeof(payload)); // 预载入ACK负载
   radio.startListening();                              // 设置为接收模式
@@ -69,15 +71,16 @@ void setup()
 
 void loop()
 {
-  memcpy(&ackPayload, "payload ack", sizeof("payload ack"));
   // 调用函数
   ReceivedData receivedData = handleRadioReceive(&ackPayload, sizeof(ackPayload));
   if (receivedData.size > 0)
   {
+    memcpy(&ackPayload, "payload ack", sizeof("payload ack"));
     ackPayload.counter = receivedData.data[2];
+    radio.writeAckPayload(1, &payload, sizeof(payload)); // 预载入ACK负载
   }
 
-  delay(10);
+  delay(1);
 }
 void TaskReceiveFromSend(void *pvParameters)
 {

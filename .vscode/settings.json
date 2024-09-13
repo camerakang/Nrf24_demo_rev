@@ -14,6 +14,7 @@
         "random": "cpp",
         "type_traits": "cpp",
         "new": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "utility": "cpp"
     }
 }
