@@ -4,6 +4,10 @@
 #include "RF24.h"
 #include "printf.h"
 #include "NRF24_device.h"
+#include <iostream>
+
+SPIClass rf24_spi(HSPI);
+
 void TaskReceiveFromSend(void *pvParameters);
 
 // nRF24L01引脚配置
@@ -27,12 +31,14 @@ unsigned long last_received_time = 0;
 void setup()
 {
   Serial.begin(115200);
+  std::cout << "__cplusplus: " << __cplusplus << std::endl;
+
   while (!Serial)
   {
     // 等待串口准备就绪
   }
-
-  if (!radio.begin())
+  rf24_spi.begin(SCK_PIN, MISO_PIN, MOSI_PIN, CSN_PIN);
+  if (!radio.begin(&rf24_spi, CE_PIN, CSN_PIN))
   {
     Serial.println(F("radio hardware is not responding!!"));
     while (1)
@@ -43,7 +49,7 @@ void setup()
   radio.setDataRate(RF24_1MBPS);
   radio.setRetries(2, 5);
   radio.setPALevel(RF24_PA_HIGH);
-    radio.enableAckPayload();
+  radio.enableAckPayload();
 
   radio.enableDynamicPayloads();
   radio.openWritingPipe(address[3]);    // 设置发送地址 (用于ACK)
@@ -100,7 +106,7 @@ void TaskReceiveFromSend(void *pvParameters)
       for (int i = 0; i < payloadsize; i++)
       {
         Serial.print("0x");
-        Serial.print((received[i]));
+        Serial.print((received[i]),HEX);
         Serial.print(" ");
       }
 
