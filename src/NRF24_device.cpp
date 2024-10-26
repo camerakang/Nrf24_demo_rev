@@ -104,14 +104,14 @@ ReceivedData handleRadioReceive(PayloadStruct *ackPayload, uint8_t ackSize)
         }
 
         // 在串口监视器上输出接收到的数据信息
-        Serial.print(F("Received "));
-        Serial.print(result.size);
-        Serial.print(F(" bytes on pipe "));
-        Serial.print(result.pipe);
-        Serial.print(F(": "));
-        Serial.print("0x");
-        Serial.print(result.data[2]);
-        Serial.print(" ");
+        // Serial.print(F("Received "));
+        // Serial.print(result.size);
+        // Serial.print(F(" bytes on pipe "));
+        // Serial.print(result.pipe);
+        // Serial.print(F(": "));
+        // Serial.print("0x");
+        // Serial.print(result.data[2]);
+        // Serial.print(" ");
         // 遍历并输出接收到的数据
         // for (int i = 0; i < result.size; i++)
         // {

@@ -31,6 +31,7 @@ unsigned long last_received_time = 0;
 void setup()
 {
   Serial.begin(115200);
+  Serial1.begin( 115200, SERIAL_8N1, 18, 17 );
   std::cout << "__cplusplus: " << __cplusplus << std::endl;
 
   while (!Serial)
@@ -81,6 +82,8 @@ void loop()
   ReceivedData receivedData = handleRadioReceive(&ackPayload, sizeof(ackPayload));
   if (receivedData.size > 0)
   {
+        Serial1.write(receivedData.data, receivedData.size);
+
     memcpy(&ackPayload, "payload ack", sizeof("payload ack"));
     ackPayload.counter = receivedData.data[2];
     radio.writeAckPayload(1, &payload, sizeof(payload)); // 预载入ACK负载
@@ -106,7 +109,7 @@ void TaskReceiveFromSend(void *pvParameters)
       for (int i = 0; i < payloadsize; i++)
       {
         Serial.print("0x");
-        Serial.print((received[i]),HEX);
+        Serial.print((received[i]), HEX);
         Serial.print(" ");
       }
 
