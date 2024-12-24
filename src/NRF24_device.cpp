@@ -1,140 +1,400 @@
 #include "NRF24_device.h"
 
-PayloadStruct payload;
-PayloadStruct ackPayload;
+uint8_t recv_buffer[32]{"recv buffer is empty"};
+uint8_t send_buffer[32]{"send buffer is empty"};
 
+// instantiate an object for the nRF24L01 transceiver
 RF24 radio(CE_PIN, CSN_PIN);
+SPIClass rf24_spi(HSPI);
 
-/**
- * 发送数据并接收PAYLOAD ACK响应
- * 该函数负责通过无线通信模块发送数据，并接收返回的数据
- *
- * @param dataToSend 要发送的数据指针
- * @param dataLength 要发送的数据长度
- * @return 返回接收到的数据结构
- *
- * 注意: 该函数假设有适当的初始化和错误处理机制存在于调用该函数的上下文中
- */
-PayloadStruct sendAndReceive(const uint8_t *dataToSend, int dataLength)
+// an identifying device destination
+// Let these addresses be used for the pair
+uint8_t address[][6] = {"1Node", "2Node"};
+uint8_t receive_address[][6]={"3Node","4Node","5Node","6Node"};
+
+void rf24_init_send()
 {
-    PayloadStruct receivedData = {"", 0};
 
-    if (dataLength <= 0 || dataLength > MAX_BUFFER_SIZE)
+    rf24_spi.begin(SCK_PIN, MISO_PIN, MOSI_PIN, CSN_PIN);
+
+    // initialize the transceiver on the SPI bus
+    if (!radio.begin(&rf24_spi, CE_PIN, CSN_PIN))
     {
-        Serial.println(F("Invalid data length"));
-        return receivedData;
+        Serial.println(F("radio hardware is not responding!!"));
+        while (1)
+        {
+        } // hold in infinite loop
     }
 
-    if (!radio.writeFast(dataToSend, dataLength, true)) // 使用 writeFast 并启用自动重试
+    // Set the PA Level low to try preventing power supply related problems
+    // because these examples are likely run with nodes in close proximity to
+    // each other.
+    radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
+
+    // to use ACK payloads, we need to enable dynamic payload lengths (for all nodes)
+    radio.enableDynamicPayloads(); // ACK payloads are dynamically sized
+
+    // Acknowledgement packets have no payloads by default. We need to enable
+    // this feature for all nodes (TX & RX) to use ACK payloads.
+    radio.enableAckPayload();
+
+    // set the TX address of the RX node into the TX pipe
+    radio.openWritingPipe(address[0]); // always uses pipe 0
+
+    // set the RX address of the TX node into a RX pipe
+    radio.openReadingPipe(1, receive_address[1]); // using pipe 1
+
+    radio.stopListening(); // this also discards any unused ACK payloads
+    // For debugging info
+    // printf_begin(); // needed only once for printing details
+    // radio.printDetails();       // (smaller) function that prints raw register values
+    // radio.printPrettyDetails(); // (larger) function that prints human readable data
+}
+void rf24_init_recv()
+{
+    rf24_spi.begin(SCK_PIN, MISO_PIN, MOSI_PIN, CSN_PIN);
+
+    // initialize the transceiver on the SPI bus
+    if (!radio.begin(&rf24_spi, CE_PIN, CSN_PIN))
     {
-        if (!radio.txStandBy(100)) // 等待最多100ms
+        Serial.println(F("radio hardware is not responding!!"));
+        while (1)
         {
-            Serial.println(F("Transmission failed"));
-            return receivedData;
-        }
+        } // hold in infinite loop
     }
 
-    // 数据发送成功
-    Serial.print(F("Sent "));
-    Serial.print(dataLength);
-    Serial.print(F(" bytes"));
+    // Set the PA Level low to try preventing power supply related problems
+    // because these examples are likely run with nodes in close proximity to
+    // each other.
+    radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
 
-    // 检查是否有返回数据
-    uint8_t pipe;
-    if (radio.available(&pipe))
+    // to use ACK payloads, we need to enable dynamic payload lengths (for all nodes)
+    radio.enableDynamicPayloads(); // ACK payloads are dynamically sized
+
+    // Acknowledgement packets have no payloads by default. We need to enable
+    // this feature for all nodes (TX & RX) to use ACK payloads.
+    radio.enableAckPayload();
+    radio.setAutoAck(true);
+    // set the TX address of the RX node into the TX pipe
+    radio.openWritingPipe(address[0]); // always uses pipe 0
+
+    // set the RX address of the TX node into a RX pipe
+    radio.openReadingPipe(1, receive_address[2]); // using pipe 1
+
+    // load the payload for the first received transmission on pipe 0
+    radio.writeAckPayload(1, send_buffer, sizeof(send_buffer));
+    radio.startListening();
+    // For debugging info
+    // printf_begin(); // needed only once for printing details
+    radio.printDetails(); // (smaller) function that prints raw register values
+    // radio.printPrettyDetails(); // (larger) function that prints human readable data
+}
+const uint8_t num_channels = 126; // 0-125 are supported
+uint8_t values[num_channels];     // the array to store summary of signal counts per channel
+const uint8_t noiseAddress[][2] = {{0x55, 0x55}, {0xAA, 0xAA}, {0xA0, 0xAA}, {0xAB, 0xAA}, {0xAC, 0xAA}, {0xAD, 0xAA}};
+const int num_reps = 100;  // number of passes for each scan of the entire spectrum
+bool constCarrierMode = 0; // this flag controls example behavior (scan mode is default)
+
+void printHeader()
+{
+    // Print the hundreds digits
+    for (uint8_t i = 0; i < num_channels; ++i)
+        Serial.print(i / 100);
+    Serial.println();
+
+    // Print the tens digits
+    for (uint8_t i = 0; i < num_channels; ++i)
+        Serial.print((i % 100) / 10);
+    Serial.println();
+
+    // Print the singles digits
+    for (uint8_t i = 0; i < num_channels; ++i)
+        Serial.print(i % 10);
+    Serial.println();
+
+    // Print the header's divider
+    for (uint8_t i = 0; i < num_channels; ++i)
+        Serial.print(F("~"));
+    Serial.println();
+}
+void rf24_init_scanner()
+{
+    rf24_spi.begin(SCK_PIN, MISO_PIN, MOSI_PIN, CSN_PIN);
+
+    // initialize the transceiver on the SPI bus
+    if (!radio.begin(&rf24_spi, CE_PIN, CSN_PIN))
     {
-        uint8_t bytes = radio.getDynamicPayloadSize();
-        if (bytes == sizeof(receivedData))
+        Serial.println(F("radio hardware is not responding!!"));
+        while (1)
         {
-            radio.read(&receivedData, sizeof(receivedData));
-            Serial.print(F("Received "));
-            Serial.print(bytes);
-            Serial.print(F(" bytes  "));
-            Serial.print(receivedData.message);
-            Serial.println(receivedData.counter);
+        } // hold in infinite loop
+    }
+    radio.stopConstCarrier(); // in case MCU was reset while radio was emitting carrier wave
+    radio.setAutoAck(false);  // Don't acknowledge arbitrary signals
+    radio.disableCRC();       // Accept any signal we find
+    radio.setAddressWidth(2); // A reverse engineering tactic (not typically recommended)
+    for (uint8_t i = 0; i < 6; ++i)
+    {
+        radio.openReadingPipe(i, noiseAddress[i]);
+    }
+
+    // set the data rate
+    Serial.print(F("Select your Data Rate. "));
+    Serial.print(F("Enter '1' for 1 Mbps, '2' for 2 Mbps, '3' for 250 kbps. "));
+    Serial.println(F("Defaults to 1Mbps."));
+    while (!Serial.available())
+    {
+        // wait for user input
+    }
+    uint8_t dataRate = Serial.parseInt();
+    if (dataRate == 50)
+    {
+        Serial.println(F("Using 2 Mbps."));
+        radio.setDataRate(RF24_2MBPS);
+    }
+    else if (dataRate == 51)
+    {
+        Serial.println(F("Using 250 kbps."));
+        radio.setDataRate(RF24_250KBPS);
+    }
+    else
+    {
+        Serial.println(F("Using 1 Mbps."));
+        radio.setDataRate(RF24_1MBPS);
+    }
+    Serial.println(F("***Enter a channel number to emit a constant carrier wave."));
+    Serial.println(F("***Enter a negative number to switch back to scanner mode."));
+
+    // Get into standby mode
+    radio.startListening();
+    radio.stopListening();
+    radio.flush_rx();
+
+    // printf_begin();
+    // radio.printPrettyDetails();
+    // delay(1000);
+
+    // Print out vertical header
+    printHeader();
+}
+void rf24_sacnner_loop()
+{
+    /****************************************/
+    // Send a number over Serial to begin Constant Carrier Wave output
+    // Configure the power amplitude level below
+    if (Serial.available())
+    {
+        int8_t c = Serial.parseInt();
+        if (c >= 0)
+        {
+            c = min(125, max(0, static_cast<int>(c))); // clamp channel to supported range
+            constCarrierMode = 1;
+            radio.stopListening();
+            delay(2);
+            Serial.print("\nStarting Carrier Wave Output on channel ");
+            Serial.println(c);
+            // for non-plus models, startConstCarrier() changes address on pipe 0 and sets address width to 5
+            radio.startConstCarrier(RF24_PA_LOW, c);
         }
         else
         {
-            Serial.println(F("Received data size mismatch"));
-            radio.flush_rx(); // 清空接收缓冲区
+            constCarrierMode = 0;
+            radio.stopConstCarrier();
+            radio.setAddressWidth(2);                  // reset address width
+            radio.openReadingPipe(0, noiseAddress[0]); // ensure address is looking for noise
+            Serial.println("\nStopping Carrier Wave Output");
+            printHeader();
+        }
+
+        // discard any CR and LF sent
+        while (Serial.peek() != -1)
+        {
+            if (Serial.peek() == '\r' || Serial.peek() == '\n')
+            {
+                Serial.read();
+            }
+            else
+            {          // got a charater that isn't a line feed
+                break; // handle it on next loop() iteration
+            }
+        }
+    }
+
+    /****************************************/
+
+    if (constCarrierMode == 0)
+    {
+        // Clear measurement values
+        memset(values, 0, sizeof(values));
+
+        // Scan all channels num_reps times
+        int rep_counter = num_reps;
+        while (rep_counter--)
+        {
+            int i = num_channels;
+            while (i--)
+            {
+                // Select this channel
+                radio.setChannel(i);
+
+                // Listen for a little
+                radio.startListening();
+                delayMicroseconds(128);
+                bool foundSignal = radio.testRPD();
+                radio.stopListening();
+
+                // Did we get a signal?
+                if (foundSignal || radio.testRPD() || radio.available())
+                {
+                    ++values[i];
+                    radio.flush_rx(); // discard packets of noise
+                }
+            }
+        }
+
+        // Print out channel measurements, clamped to a single hex digit
+        for (int i = 0; i < num_channels; ++i)
+        {
+            if (values[i])
+                Serial.print(min((uint8_t)0xf, values[i]), HEX);
+            else
+                Serial.print(F("-"));
+        }
+        Serial.println();
+
+    } // if constCarrierMode == 0
+    else
+    {
+        // show some output to prove that the program isn't bricked
+        Serial.print(F("."));
+        delay(1000); // delay a second to keep output readable
+    }
+}
+size_t rf24_send(uint8_t *send_buffer, int send_len, uint8_t *recv_buffer)
+{
+    radio.setAutoAck(true);
+    unsigned long start_timer = micros(); // start the timer
+    // Serial.print(F("Sending data: "));
+    // for (size_t i = 0; i < send_len; i++)
+    // {
+    //     Serial.print(send_buffer[i], HEX);
+    //     Serial.print(" ");
+    // }
+    // Serial.println();
+
+    bool report = radio.writeFast(send_buffer, send_len); // transmit & save the report
+    unsigned long end_timer = micros();                   // end the timer
+
+    if (report)
+    {
+        // Serial.print(F("Transmission successful! ")); // payload was delivered
+        // Serial.print(F("Time to transmit = "));
+        // Serial.print(end_timer - start_timer); // print the timer result
+        // Serial.print(F(" us. Sent: "));
+
+        uint8_t pipe;
+        if (radio.available(&pipe))
+        { // is there an ACK payload? grab the pipe number that received it
+            size_t bytes = radio.getDynamicPayloadSize();
+            radio.read(recv_buffer, bytes); // get incoming ACK payload
+            // Serial.print(F(" Received "));
+            // Serial.print(bytes); // print incoming payload size
+            // Serial.print(F(" bytes on pipe "));
+            // Serial.print(pipe); // print pipe number that received the ACK
+            // Serial.print(F(": "));
+            // for (uint8_t i = 0; i < radio.getDynamicPayloadSize(); i++)
+            // {
+            //     Serial.print(recv_buffer[i], HEX);
+            //     Serial.print(" ");
+            // }
+            // Serial.println();
+            return bytes;
+        }
+        else
+        {
+            Serial.println(F(" Received: an empty ACK packet")); // empty ACK packet received
+            return 0;
         }
     }
     else
     {
-        Serial.println(F("No response received"));
+        Serial.println(F("Transmission failed or timed out")); // payload was not delivered
+        return 0;
     }
-
-    return receivedData;
+}
+void rf24_send_only(uint8_t *send_buffer, int send_len)
+{
+    radio.stopListening();
+    radio.setAutoAck(false);
+    radio.writeFast(send_buffer, send_len); // transmit & save the report
 }
 
-unsigned long start_timer = 0;
-/**
- * 处理无线电接收功能的函数
- *
- * 该函数负责接收无线电数据，计算接收间隔，并且可发送确认payload
- *
- * @param void *ackPayload 指向需要作为确认回复发送的数据缓冲区
- * @param uint8_t ackSize 确认回复数据的大小
- *
- * @return 返回一个ReceivedData结构体，其中包含接收到的数据、接收管道、数据大小和接收间隔
- */
-ReceivedData handleRadioReceive(PayloadStruct *ackPayload, uint8_t ackSize)
+size_t rf24_recv(uint8_t *recv_buffer, uint8_t *send_buffer, uint8_t send_len)
 {
-    ReceivedData result = {0}; // 初始化接收结果结构体
-
-    // 检查是否有数据可用
-    if (radio.available(&result.pipe))
-    {
-
-        unsigned long current_time = micros();        // 获取当前时间，用于计算接收间隔
-        result.interval = current_time - start_timer; // 计算接收间隔
-        start_timer = current_time;                   // 更新计时器起点
-
-        result.size = radio.getDynamicPayloadSize(); // 获取动态payload大小
-        // 确保payload大小不会超过最大值
-        if (result.size > 0 && result.size <= MAX_PAYLOAD_SIZE)
-        {
-            radio.read(result.data, result.size); // 读取接收到的数据
-        }
-        else
-        {
-            // 数据大小不正确，清空RX FIFO
-            radio.flush_rx();
-            return result;
-        }
-
-        // 在串口监视器上输出接收到的数据信息
+    radio.startListening();
+    uint8_t pipe;
+    if (radio.available(&pipe))
+    {                                                  // is there a payload? get the pipe number that received it
+        uint8_t bytes = radio.getDynamicPayloadSize(); // get the size of the payload
+        radio.read(recv_buffer, bytes);                // get incoming payload
         Serial.print(F("Received "));
-        Serial.print(result.size);
+        Serial.print(bytes); // print the size of the payload
         Serial.print(F(" bytes on pipe "));
-        Serial.print(result.pipe);
+        Serial.print(pipe); // print the pipe number
         Serial.print(F(": "));
-        Serial.print("0x");
-        Serial.print(result.data[2]);
-        Serial.print(" ");
-        // 遍历并输出接收到的数据
-        // for (int i = 0; i < result.size; i++)
+        // for (uint8_t i = 0; i < bytes; i++)
         // {
-        //     Serial.print("0x");
-        //     Serial.print(result.data[i], HEX);
-        //     Serial.print(" ");
+        //     Serial.print(recv_buffer[i], HEX);
         // }
-
-        // Serial.print(F(" Interval: "));
-        // Serial.print(result.interval);
-        // Serial.print(F(" us "));
-
-        // 如果提供了确认payload，则发送它
-        if (ackPayload != NULL && ackSize > 0)
-        {
-            // ackPayload->counter = result.data[2];
-            Serial.print(ackPayload->message);
-            Serial.println(ackPayload->counter);
-
-            radio.writeAckPayload(result.pipe, ackPayload, ackSize);
-        }
-        start_timer = micros(); // 使用micros()开始计时，用于计算接收间隔
+        // Serial.println();
+        // Serial.print("Sending ACK payload...");
+        // for (uint8_t i = 0; i < bytes; i++)
+        // {
+        //     Serial.print(send_buffer[i], HEX);
+        // }
+        // Serial.println();
+        radio.writeAckPayload(1, send_buffer, send_len);
+        return bytes;
     }
+    return 0;
+}
 
-    return result; // 返回接收结果结构体
+size_t rf24_recv_only(uint8_t *recv_buffer)
+{
+    radio.startListening();
+    uint8_t pipe;
+    if (radio.available(&pipe))
+    {                                                  // is there a payload? get the pipe number that received it
+        uint8_t bytes = radio.getDynamicPayloadSize(); // get the size of the payload
+        radio.read(recv_buffer, bytes);                // get incoming payload
+        // Serial.print(F("Received "));
+        // Serial.print(bytes); // print the size of the payload
+        // Serial.print(F(" bytes on pipe "));
+        // Serial.print(pipe); // print the pipe number
+        // // Serial.print(F(": "));
+        // for (uint8_t i = 0; i < bytes; i++)
+        // {
+        //     Serial.print(recv_buffer[i], HEX);
+        // }
+        // Serial.println();
+        // Serial.print("Sending ACK payload...");
+        // for (uint8_t i = 0; i < bytes; i++)
+        // {
+        //     Serial.print(send_buffer[i], HEX);
+        // }
+        // Serial.println();
+        return bytes;
+    }
+    return 0;
+}
+
+void rf24_change_channel(uint8_t channel)
+{
+    auto cha = radio.getChannel();
+    Serial.print("Current channel: ");
+    Serial.println(cha);
+    bool goodSignal = radio.testRPD();
+    Serial.println(goodSignal ? "Strong signal > -64dBm" : "Weak signal < -64dBm");
+    radio.stopListening();
+    // radio.setChannel(channel);
 }
